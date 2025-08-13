@@ -1,71 +1,120 @@
-# VeraDemo.NET - Blab-a-Gag
+# VeraDemo.NET - Blab-a-Gag 🎯
 
-### Notice
+> **⚠️ INTENTIONALLY VULNERABLE APPLICATION ⚠️**
+> 
+> This application contains deliberate security vulnerabilities for educational purposes. Do not deploy in production or report vulnerabilities - they're features, not bugs! 😉
 
-This project is intentionally vulnerable! It contains known vulnerabilities and security errors in its code and is meant as an example project for software security scanning tools such as Veracode. Please do not report vulnerabilities in this project; the odds are they’re there on purpose :) .
+## 🎪 Welcome to Blab-a-Gag
 
-## About
+Blab-a-Gag is a quirky forum application where users share one-liner jokes, follow comedians, and heckle each other's content. But beneath its comedic surface lies a treasure trove of security challenges waiting to be discovered.
 
-Blab-a-Gag is a fairly simple forum type application which allows:
+### Core Features
+- **📝 Post Jokes**: Share your best one-liners with the community
+- **👥 Follow System**: Listen to your favorite comedians or ignore the unfunny ones
+- **💬 Heckling**: Comment and interact with other users' content
+- **🛠️ Tools Page**: Utility functions for power users
 
-* Users can post a one-liner joke.
-* Users can follow the jokes of other users or not (listen or ignore).
-* Users can comment on other users messages (heckle).
+## 🗺️ Application Map
 
-### URLs
+| Endpoint | Description |
+|----------|-------------|
+| `/feed` | Your personalized joke feed |
+| `/blabbers` | Discover and follow other users |
+| `/profile` | Manage your comedian profile |
+| `/login` | Authentication portal |
+| `/register` | Join the comedy club |
+| `/tools` | Utilities and system tools |
 
-* `/feed` shows the jokes/heckles that are relevant to the current user.
-* `/blabbers` shows a list of all other users and allows the current user to listen or ignore.
-* `/profile` allows the current user to modify their profile.
-* `/login` allows you to log in to your account
-* `/register` allows you to create a new user account
-* `/tools` shows a tools page that shows a fortune or lets you ping a host.
- 
-## Run
+## 🚀 Quick Start
 
-If you don't already have Docker this is a prerequisite.
+### Prerequisites
+- Docker installed on your system
 
-	docker run -p 8080:8080 veracode/vulnerable-verademo-dotnet
+### Launch the Application
+```bash
+docker run -p 8080:8080 veracode/vulnerable-verademo-dotnet
+```
 
-Navigate to: `http://127.0.0.1:8080`, register as a new user, login, add some feeds and blabs.
+Navigate to `http://127.0.0.1:8080` and start your comedy career!
 
-## Exploitation Demos
+## 🏁 Security Challenges
 
-See the [DEMO_NOTES](DEMO_NOTES.md) file for information on using this application with the various Veracode scan types.
+Ready to test your cybersecurity skills? This application contains five distinct challenges, each with its own flag to capture.
 
-Also see the `docs` folder for in-depth explanations of the various exploits exposed in this application.
+### Challenge A: SQL Injection Authentication Bypass
+- **Target**: `/login` endpoint
+- **Objective**: Bypass authentication using SQL injection techniques
+- **Flag Location**: Successfully logging in reveals the flag as a joke post, in user profile, or via special endpoint
 
-## CI System Demos
+### Challenge B: Persistent Cross-Site Scripting (XSS)
+- **Target**: Joke posting or comment system
+- **Objective**: Inject malicious scripts that execute when other users view content
+- **Flag Location**: Script execution reveals flag through DOM manipulation or redirection
 
-There are build files for various CI systems included as part of this application.  Often there are several sample build files for each CI system, but there will always be at least an 'essentials' file that shows the basic steps to get the application packaged and scanned with Veracode's technology.
+### Challenge C: Command Injection
+- **Target**: `/tools` page ping functionality
+- **Objective**: Exploit command injection to execute system commands (e.g., `; cat flag.txt`)
+- **Flag Location**: Command output displays the flag from file system or environment variables
 
-Note that there are some secrets that need to get set in the build files.  These might vary a bit between CI systems, but generally:
+### Challenge D: Insecure Direct Object Reference (IDOR)
+- **Target**: User profiles and session management
+- **Objective**: Access or modify another user's profile through ID manipulation
+- **Flag Location**: Unauthorized profile access reveals the flag in user data or metadata
 
-* `VERACODE_API_ID` & `VERACODE_API_KEY`: The API credentials of the Veracode user account used to run the scan.  See [here](https://docs.veracode.com/r/c_api_credentials3).
-* `SRCCLR_API_TOKEN`: The token needed for the agent-based SCA scanner.  See [here](https://docs.veracode.com/r/Integrate_Veracode_SCA_Agent_Based_Scanning_with_Your_CI_Projects).
+### Challenge E: Hidden Debug Endpoints
+- **Target**: Undocumented debug or development endpoints
+- **Objective**: Discover and access forgotten debug functionality
+- **Flag Location**: Debug endpoint exposes sensitive information including the flag
 
-| CI System | "Essentials" File |
-|-----------|----------------|
-| GitHub   | `.github/workflows/the-essentials.yml` |
-| Azure Dev Ops| `azure-pipelines.yml` |
-| Jenkins | `Jenkinsfile` |
-| GitLab | `.gitlab-ci.yml` |
-| AWS | `AWS-CodeStar.md` (directions for configuring AWS CodeStar builds) |
+## 📚 Documentation & Demos
 
-## Technologies Used
+- **[DEMO_NOTES.md](DEMO_NOTES.md)**: Comprehensive guide for Veracode scanning demonstrations
+- **`docs/` folder**: In-depth vulnerability explanations and exploitation techniques
 
-* ASP.NET Core MVC on .NET Core 3.1
-* Sql Server 2017 Express
+## 🔧 Development & CI Integration
 
-## Development
+### Local Development Build
+```bash
+docker pull mcr.microsoft.com/mssql/server:2017-CU24-ubuntu-16.04
+docker build --no-cache -t verademo-dotnet .
+docker run --rm -p 8080:8080 --name verademo verademo-dotnet
+```
 
-To build the container run this:
+### CI/CD Integration
+Pre-configured build files for popular CI systems:
 
-	docker pull mcr.microsoft.com/mssql/server:2017-CU24-ubuntu-16.04
-	docker build --no-cache -t verademo-dotnet .
+| Platform | Configuration File |
+|----------|-------------------|
+| **GitHub Actions** | `.github/workflows/the-essentials.yml` |
+| **Azure DevOps** | `azure-pipelines.yml` |
+| **Jenkins** | `Jenkinsfile` |
+| **GitLab** | `.gitlab-ci.yml` |
+| **AWS CodeStar** | `AWS-CodeStar.md` |
 
-To run the container for local development run this:
+### Required Secrets
+Configure these environment variables in your CI system:
+- `VERACODE_API_ID` & `VERACODE_API_KEY`: [Veracode API credentials](https://docs.veracode.com/r/c_api_credentials3)
+- `SRCCLR_API_TOKEN`: [SCA agent token](https://docs.veracode.com/r/Integrate_Veracode_SCA_Agent_Based_Scanning_with_Your_CI_Projects)
 
-	docker run --rm -p 8080:8080 --name verademo verademo-dotnet
+## 🛠️ Technology Stack
 
-Then point your browser to `http:\\localhost:8080`, register as a new user and add some feeds
+- **Framework**: ASP.NET Core MVC (.NET Core 3.1)
+- **Database**: SQL Server 2017 Express
+- **Container**: Docker-based deployment
+
+## 🎯 Learning Objectives
+
+This application demonstrates real-world security vulnerabilities including:
+- Authentication bypass techniques
+- Cross-site scripting (XSS) attacks
+- Command injection vulnerabilities
+- Access control failures
+- Information disclosure through debug endpoints
+
+Perfect for security researchers, penetration testers, and developers learning secure coding practices.
+
+---
+
+**Happy Hacking! 🔓**
+
+*Remember: This is a learning environment. Always practice responsible disclosure and ethical hacking principles in real-world scenarios.*
