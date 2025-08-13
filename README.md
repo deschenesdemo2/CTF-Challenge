@@ -1,3 +1,5 @@
+*Work in Progress* ONLY CHALLENGE A MIGHT BE READY
+
 # VeraDemo.NET - Blab-a-Gag 🎯
 
 > **⚠️ INTENTIONALLY VULNERABLE APPLICATION ⚠️**
