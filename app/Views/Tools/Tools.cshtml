@@ -1,30 +1,240 @@
-@model Verademo.Models.ToolViewModel
-
 @{
-    ViewBag.Title = "Tools";
+    ViewData["Title"] = "Tools";
 }
 
-<div class="page-header">
-    <h4>Tools</h4>
-</div>
-<div></div>
-<form method="post" action="@Url.Action("tools")">
-    <div>
-        <p>Check the availability of a host here by pinging it. Example: 127.0.0.1</p>
+<div class="container">
+    <div class="row">
+        <div class="col-md-12">
+            <h2>Network Tools</h2>
+            <p class="lead">Diagnostic tools for network troubleshooting</p>
+        </div>
+    </div>
 
-        <label for="host">Host:</label>
-        <input type="text" name="host"
-               @{ if (Model.Host != null) { @Html.Raw("value= \"" + Model.Host + "\"")  } } />
-        <input type="submit" value="Check" />
-        <pre>@Model.PingResult</pre>
+    <div class="row">
+        <!-- Ping Tool -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h4><i class="fa fa-wifi"></i> Ping Tool</h4>
+                </div>
+                <div class="card-body">
+                    <p>Test network connectivity to a host</p>
+                    
+                    @using (Html.BeginForm("Ping", "Tools", FormMethod.Post))
+                    {
+                        <div class="form-group">
+                            <label for="host">Host/IP Address:</label>
+                            <input type="text" id="host" name="host" class="form-control" 
+                                   placeholder="e.g., google.com or 8.8.8.8" 
+                                   value="@Request.Form["host"]" />
+                            <small class="form-text text-muted">
+                                Enter a hostname or IP address to ping
+                            </small>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fa fa-play"></i> Ping Host
+                        </button>
+                    }
+
+                    @if (!string.IsNullOrEmpty(ViewBag.PingResult as string))
+                    {
+                        <div class="mt-4">
+                            <h5>Ping Result:</h5>
+                            <div class="alert alert-info">
+                                <pre style="white-space: pre-wrap; word-wrap: break-word;">@ViewBag.PingResult</pre>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Network Diagnostic Tool -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h4><i class="fa fa-wrench"></i> Network Diagnostic</h4>
+                </div>
+                <div class="card-body">
+                    <p>Advanced network diagnostic commands</p>
+                    
+                    @using (Html.BeginForm("NetworkDiag", "Tools", FormMethod.Post))
+                    {
+                        <div class="form-group">
+                            <label for="command">Command:</label>
+                            <select id="command" name="command" class="form-control">
+                                <option value="ping -c 4">Ping (4 packets)</option>
+                                <option value="nslookup">DNS Lookup</option>
+                                <option value="traceroute">Trace Route</option>
+                                <option value="curl -I">HTTP Headers</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="target">Target:</label>
+                            <input type="text" id="target" name="target" class="form-control" 
+                                   placeholder="e.g., example.com" 
+                                   value="@Request.Form["target"]" />
+                            <small class="form-text text-muted">
+                                Target host for the diagnostic command
+                            </small>
+                        </div>
+                        <button type="submit" class="btn btn-success">
+                            <i class="fa fa-cog"></i> Run Diagnostic
+                        </button>
+                    }
+
+                    @if (!string.IsNullOrEmpty(ViewBag.DiagResult as string))
+                    {
+                        <div class="mt-4">
+                            <h5>Diagnostic Result:</h5>
+                            <div class="alert alert-success">
+                                <pre style="white-space: pre-wrap; word-wrap: break-word;">@ViewBag.DiagResult</pre>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
     </div>
-    <div>
-        <h5>Show a UNIX fortune from one of the 2 supported dictionaries.</h5>
-        <select name="fortunefile">
-            <option value="literature">literature</option>
-            <option value="riddles">riddles</option>
-        </select>
-        <input type="submit" value="Change" />
-        <pre>@Model.FortuneResult</pre>
+
+    <div class="row mt-4">
+        <!-- Fortune Cookie -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h4><i class="fa fa-magic"></i> Fortune Cookie</h4>
+                </div>
+                <div class="card-body">
+                    <p>Get a random fortune for good luck!</p>
+                    
+                    @using (Html.BeginForm("Fortune", "Tools", FormMethod.Post))
+                    {
+                        <div class="form-group">
+                            <label for="category">Category:</label>
+                            <input type="text" id="category" name="category" class="form-control" 
+                                   placeholder="Leave empty for random (optional)" 
+                                   value="@Request.Form["category"]" />
+                            <small class="form-text text-muted">
+                                Optional: specify fortune category (e.g., computers, love, wisdom)
+                            </small>
+                        </div>
+                        <button type="submit" class="btn btn-warning">
+                            <i class="fa fa-star"></i> Get Fortune
+                        </button>
+                    }
+
+                    @if (!string.IsNullOrEmpty(ViewBag.FortuneResult as string))
+                    {
+                        <div class="mt-4">
+                            <h5>Your Fortune:</h5>
+                            <div class="alert alert-warning">
+                                <pre style="white-space: pre-wrap; word-wrap: break-word;">@ViewBag.FortuneResult</pre>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Help/Instructions -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h4><i class="fa fa-question-circle"></i> Tool Help</h4>
+                </div>
+                <div class="card-body">
+                    <h6>Ping Tool:</h6>
+                    <ul>
+                        <li>Test connectivity to any host</li>
+                        <li>Shows packet loss and response times</li>
+                        <li>Supports both hostnames and IP addresses</li>
+                    </ul>
+
+                    <h6>Network Diagnostic:</h6>
+                    <ul>
+                        <li>Advanced network troubleshooting</li>
+                        <li>Multiple diagnostic commands available</li>
+                        <li>Detailed network information</li>
+                    </ul>
+
+                    <h6>Fortune Cookie:</h6>
+                    <ul>
+                        <li>Random wisdom and quotes</li>
+                        <li>Optional category selection</li>
+                        <li>Good luck charms for your day!</li>
+                    </ul>
+
+                    <div class="alert alert-info mt-3">
+                        <strong>Pro Tip:</strong> These tools help diagnose network connectivity issues. 
+                        Use them to troubleshoot connection problems or gather network information.
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-</form>
+</div>
+
+<!-- Add some styling for better presentation -->
+<style>
+    .card {
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border: none;
+        margin-bottom: 20px;
+    }
+    
+    .card-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-bottom: none;
+    }
+    
+    .card-header h4 {
+        margin: 0;
+        font-size: 1.1rem;
+    }
+    
+    pre {
+        background-color: #2d3748;
+        color: #e2e8f0;
+        padding: 15px;
+        border-radius: 5px;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9rem;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    
+    .btn {
+        border-radius: 20px;
+        padding: 8px 20px;
+    }
+    
+    .form-control {
+        border-radius: 10px;
+    }
+    
+    .alert {
+        border-radius: 10px;
+    }
+</style>
+
+<!-- CTF Hint Section (Hidden by default) -->
+<div id="ctf-hints" style="display: none;">
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="alert alert-danger">
+                <h4>🚨 CTF Challenge Detected 🚨</h4>
+                <p><strong>Hint:</strong> Try injecting additional commands after the ping target...</p>
+                <p><strong>Example:</strong> Use semicolons (;), double ampersands (&&), or pipes (|) to chain commands</p>
+                <p><strong>Goal:</strong> Find and read the flag file hidden on the system</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Show CTF hints if specific parameter is present (for testing)
+    if (window.location.search.includes('ctf=true')) {
+        document.getElementById('ctf-hints').style.display = 'block';
+    }
+</script>

