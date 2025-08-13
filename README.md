@@ -1,4 +1,4 @@
-*Work in Progress* ONLY CHALLENGE A MIGHT BE READY
+*WORK IN PROGRESS ONLY CHALLENGE A MIGHT BE READY*
 
 # VeraDemo.NET - Blab-a-Gag 🎯
 
